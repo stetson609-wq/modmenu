@@ -1,0 +1,21 @@
+name: Build iOS Dylib
+
+on:
+  push:
+    paths:
+      - '*.m'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile dylib
+        run: |
+          clang -arch arm64 -dynamiclib -o modmenu.dylib *.m \
+            -framework UIKit -framework Foundation -fobjc-arc -O2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: modmenu
+          path: modmenu.dylib
