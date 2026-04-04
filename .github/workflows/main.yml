@@ -1,0 +1,72 @@
+name: Build iOS Dylib
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: macos-14
+    continue-on-error: false
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Xcode
+      run: |
+        sudo xcode-select -switch /Applications/Xcode_15.4.app/Contents/Developer || \
+        sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
+        echo "SDK: $(xcrun --sdk iphoneos --show-sdk-path)"
+        
+    - name: Compile Dylib
+      run: |
+        cat > SuperSlicerMod.m << 'OBJC'
+        #import <Foundation/Foundation.h>
+        #import <UIKit/UIKit.h>
+        #import <objc/runtime.h>
+        
+        __attribute__((constructor)) static void Init() {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+                NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+                [defaults setInteger:999999999 forKey:@"gold"];
+                [defaults setInteger:999999999 forKey:@"money"];
+                [defaults setInteger:999999999 forKey:@"cash"];
+                [defaults setInteger:999999999 forKey:@"score"];
+                [defaults setInteger:999999999 forKey:@"stage"];
+                [defaults synchronize];
+                
+                UIWindow *window = [UIApplication sharedApplication].keyWindow;
+                for (UIView *view in window.subviews) {
+                    if ([view isKindOfClass:[UIButton class]]) {
+                        UIButton *btn = (UIButton*)view;
+                        [btn sendActionsForControlEvents:UIControlEventTouchUpInside];
+                    }
+                }
+            });
+        }
+        OBJC
+        
+        clang -dynamiclib \
+          -arch arm64 \
+          -miphoneos-version-min=13.0 \
+          -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
+          -framework Foundation \
+          -framework UIKit \
+          -o SuperSlicerMod.dylib \
+          SuperSlicerMod.m \
+          -undefined dynamic_lookup
+        
+    - name: Sign Dylib
+      run: |
+        codesign -f -s - --timestamp=none --entitlements - SuperSlicerMod.dylib <<ENT
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0"><dict><key>com.apple.security.cs.disable-library-validation</key><true/></dict></plist>
+        ENT
+        
+    - name: Upload
+      uses: actions/upload-artifact@v4
+      with:
+        name: SuperSlicerMod.dylib
+        path: SuperSlicerMod.dylib
+        if-no-files-found: error
