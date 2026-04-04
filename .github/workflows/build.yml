@@ -2,19 +2,85 @@ name: Build iOS Dylib
 
 on:
   push:
+    paths:
+      - '*.m'
+      - '*.mm'
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-13
+    runs-on: macos-latest
+    
     steps:
-      - uses: actions/checkout@v3
-      - name: Compile dylib
-        run: |
-          clang -arch arm64 -dynamiclib -o modmenu.dylib modmenu.m \
-            -framework UIKit -framework Foundation -fobjc-arc -O2
-          file modmenu.dylib
-      - uses: actions/upload-artifact@v3
-        with:
-          name: modmenu
-          path: modmenu.dylib
+    - uses: actions/checkout@v4
+    
+    - name: Install iOS SDK dependencies
+      run: |
+        xcode-select --install 2>/dev/null || true
+        sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
+        
+    - name: Compile Objective-C to Dynamic Library
+      run: |
+        clang -dynamiclib \
+          -arch arm64 \
+          -miphoneos-version-min=12.0 \
+          -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
+          -framework Foundation \
+          -framework UIKit \
+          -framework QuartzCore \
+          -framework CoreGraphics \
+          -framework ObjectiveC \
+          -F$(xcrun --sdk iphoneos --show-sdk-path)/System/Library/Frameworks \
+          -F$(xcrun --sdk iphoneos --show-sdk-path)/System/Library/PrivateFrameworks \
+          -o SuperSlicerMod.dylib \
+          SuperSlicerMod.m \
+          -undefined dynamic_lookup \
+          -allowable_client \
+          -compatibility_version 1.0 \
+          -current_version 1.0
+        
+    - name: Strip debug symbols
+      run: |
+        strip -x SuperSlicerMod.dylib
+        codesign -f -s - SuperSlicerMod.dylib
+        
+    - name: Verify dylib architecture
+      run: |
+        file SuperSlicerMod.dylib
+        otool -L SuperSlicerMod.dylib
+        
+    - name: Upload dylib artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: SuperSlicerMod.dylib
+        path: SuperSlicerMod.dylib
+        
+    - name: Create IPA injection package
+      run: |
+        mkdir -p inject_package
+        cp SuperSlicerMod.dylib inject_package/
+        cat > inject_package/inject.sh << 'EOF'
+        #!/bin/bash
+        # Requires: insert_dylib (brew install insert_dylib)
+        # Usage: ./inject.sh YourGame.ipa
+        
+        IPA="$1"
+        unzip "$IPA" -d Payload/
+        DYLIB_PATH="@executable_path/SuperSlicerMod.dylib"
+        
+        for binary in Payload/*.app/*; do
+          if file "$binary" | grep -q "Mach-O"; then
+            insert_dylib "$DYLIB_PATH" "$binary" --all-yes
+          fi
+        done
+        
+        cp SuperSlicerMod.dylib Payload/*.app/
+        zip -r "modded_$IPA" Payload/
+        EOF
+        chmod +x inject_package/inject.sh
+        
+    - name: Upload injection tools
+      uses: actions/upload-artifact@v4
+      with:
+        name: InjectionPackage
+        path: inject_package/
