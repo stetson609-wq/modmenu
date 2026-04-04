@@ -18,7 +18,6 @@ jobs:
       run: |
         sudo xcode-select --reset
         sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
-        echo "SDK: $(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo 'fallback')"
         
     - name: Compile Dylib
       run: |
@@ -27,14 +26,24 @@ jobs:
         #import <UIKit/UIKit.h>
         #import <objc/runtime.h>
         
-        @interface UIApplication (Private)
-        - (void)sendEvent:(id)event;
-        @end
-        
-        static float speed = 10.0;
+        void scanViews(UIView *view) {
+            if (!view) return;
+            if ([view isKindOfClass:[UIButton class]]) {
+                UIButton *btn = (UIButton*)view;
+                NSString *title = [btn titleForState:UIControlStateNormal];
+                if (title && ([title containsString:@"KNIFE"] || [title containsString:@"ADD"] || [title containsString:@"UPGRADE"] || [title containsString:@"knife"])) {
+                    for (int i = 0; i < 50; i++) {
+                        [btn sendActionsForControlEvents:UIControlEventTouchUpInside];
+                    }
+                }
+            }
+            for (UIView *sub in view.subviews) {
+                scanViews(sub);
+            }
+        }
         
         __attribute__((constructor)) static void Init() {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
                 NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
                 NSArray *keys = @[@"gold",@"money",@"cash",@"score",@"stage",@"gems",@"coins",@"bucks",@"diamonds",@"crystals",@"points",@"multiplier",@"power",@"click",@"knife",@"speed",@"slice"];
                 for (NSString *key in keys) {
@@ -44,27 +53,14 @@ jobs:
                 [defaults synchronize];
                 
                 UIWindow *window = [UIApplication sharedApplication].windows.firstObject;
-                [self scanViews:window];
-            });
-        }
-        
-        void scanViews(UIView *view) {
-            if ([view isKindOfClass:[UIButton class]]) {
-                UIButton *btn = (UIButton*)view;
-                NSString *title = [btn titleForState:UIControlStateNormal];
-                if (title && ([title containsString:@"KNIFE"] || [title containsString:@"ADD"] || [title containsString:@"UPGRADE"])) {
-                    for (int i = 0; i < 100; i++) {
-                        [btn sendActionsForControlEvents:UIControlEventTouchUpInside];
-                    }
+                if (window) {
+                    scanViews(window);
                 }
-            }
-            for (UIView *sub in view.subviews) {
-                scanViews(sub);
-            }
+            });
         }
         OBJC
         
-        SDK=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk")
+        SDK=$(xcrun --sdk iphoneos --show-sdk-path)
         
         clang -dynamiclib \
           -arch arm64 \
@@ -82,7 +78,6 @@ jobs:
       run: |
         strip -Sx SuperSlicerMod.dylib 2>/dev/null || true
         codesign -f -s - --timestamp=none SuperSlicerMod.dylib 2>/dev/null || true
-        ls -la SuperSlicerMod.dylib
         file SuperSlicerMod.dylib
         
     - name: Upload Dylib
@@ -91,4 +86,3 @@ jobs:
         name: SuperSlicerMod.dylib
         path: SuperSlicerMod.dylib
         if-no-files-found: error
-        compression-level: 0
