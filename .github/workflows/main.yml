@@ -8,15 +8,17 @@ jobs:
   build:
     runs-on: macos-14
     continue-on-error: false
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     
     steps:
     - uses: actions/checkout@v4
     
     - name: Setup Xcode
       run: |
-        sudo xcode-select -switch /Applications/Xcode_15.4.app/Contents/Developer || \
-        sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer
-        echo "SDK: $(xcrun --sdk iphoneos --show-sdk-path)"
+        sudo xcode-select --reset
+        sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
+        echo "SDK: $(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo 'fallback')"
         
     - name: Compile Dylib
       run: |
@@ -25,48 +27,68 @@ jobs:
         #import <UIKit/UIKit.h>
         #import <objc/runtime.h>
         
+        @interface UIApplication (Private)
+        - (void)sendEvent:(id)event;
+        @end
+        
+        static float speed = 10.0;
+        
         __attribute__((constructor)) static void Init() {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0.5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
                 NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-                [defaults setInteger:999999999 forKey:@"gold"];
-                [defaults setInteger:999999999 forKey:@"money"];
-                [defaults setInteger:999999999 forKey:@"cash"];
-                [defaults setInteger:999999999 forKey:@"score"];
-                [defaults setInteger:999999999 forKey:@"stage"];
+                NSArray *keys = @[@"gold",@"money",@"cash",@"score",@"stage",@"gems",@"coins",@"bucks",@"diamonds",@"crystals",@"points",@"multiplier",@"power",@"click",@"knife",@"speed",@"slice"];
+                for (NSString *key in keys) {
+                    [defaults setInteger:999999999 forKey:key];
+                    [defaults setFloat:999999.0 forKey:[key stringByAppendingString:@"_float"]];
+                }
                 [defaults synchronize];
                 
-                UIWindow *window = [UIApplication sharedApplication].keyWindow;
-                for (UIView *view in window.subviews) {
-                    if ([view isKindOfClass:[UIButton class]]) {
-                        UIButton *btn = (UIButton*)view;
+                UIWindow *window = [UIApplication sharedApplication].windows.firstObject;
+                [self scanViews:window];
+            });
+        }
+        
+        void scanViews(UIView *view) {
+            if ([view isKindOfClass:[UIButton class]]) {
+                UIButton *btn = (UIButton*)view;
+                NSString *title = [btn titleForState:UIControlStateNormal];
+                if (title && ([title containsString:@"KNIFE"] || [title containsString:@"ADD"] || [title containsString:@"UPGRADE"])) {
+                    for (int i = 0; i < 100; i++) {
                         [btn sendActionsForControlEvents:UIControlEventTouchUpInside];
                     }
                 }
-            });
+            }
+            for (UIView *sub in view.subviews) {
+                scanViews(sub);
+            }
         }
         OBJC
         
+        SDK=$(xcrun --sdk iphoneos --show-sdk-path 2>/dev/null || echo "/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk")
+        
         clang -dynamiclib \
           -arch arm64 \
-          -miphoneos-version-min=13.0 \
-          -isysroot $(xcrun --sdk iphoneos --show-sdk-path) \
+          -miphoneos-version-min=11.0 \
+          -isysroot "$SDK" \
           -framework Foundation \
           -framework UIKit \
+          -framework CoreGraphics \
           -o SuperSlicerMod.dylib \
           SuperSlicerMod.m \
-          -undefined dynamic_lookup
+          -undefined dynamic_lookup \
+          -O2
         
-    - name: Sign Dylib
+    - name: Sign and Strip
       run: |
-        codesign -f -s - --timestamp=none --entitlements - SuperSlicerMod.dylib <<ENT
-        <?xml version="1.0" encoding="UTF-8"?>
-        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <plist version="1.0"><dict><key>com.apple.security.cs.disable-library-validation</key><true/></dict></plist>
-        ENT
+        strip -Sx SuperSlicerMod.dylib 2>/dev/null || true
+        codesign -f -s - --timestamp=none SuperSlicerMod.dylib 2>/dev/null || true
+        ls -la SuperSlicerMod.dylib
+        file SuperSlicerMod.dylib
         
-    - name: Upload
+    - name: Upload Dylib
       uses: actions/upload-artifact@v4
       with:
         name: SuperSlicerMod.dylib
         path: SuperSlicerMod.dylib
         if-no-files-found: error
+        compression-level: 0
