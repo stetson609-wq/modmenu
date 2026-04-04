@@ -34,8 +34,7 @@ jobs:
           -F$(xcrun --sdk iphoneos --show-sdk-path)/System/Library/PrivateFrameworks \
           -o SuperSlicerMod.dylib \
           SuperSlicerMod.m \
-          -undefined dynamic_lookup \
-          -allowable_client \
+          -undefined suppress \
           -compatibility_version 1.0 \
           -current_version 1.0
         
