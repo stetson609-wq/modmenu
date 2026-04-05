@@ -1,88 +1,44 @@
-name: Build iOS Dylib
+EOF
 
-on:
-  workflow_dispatch:
-  push:
+- name: Upload artifacts
+uses: actions/upload-artifact@v4
+with:
+name: CheatEngine-Dylib
+path: |
+  CheatEngine.dylib
+  inject.sh
+  install.sh
+  README.md
+compression-level: 9
 
-jobs:
-  build:
-    runs-on: macos-14
-    continue-on-error: false
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-    
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Setup Xcode
-      run: |
-        sudo xcode-select --reset
-        sudo xcode-select -s /Applications/Xcode.app/Contents/Developer || true
-        
-    - name: Compile Dylib
-      run: |
-        cat > SuperSlicerMod.m << 'OBJC'
-        #import <Foundation/Foundation.h>
-        #import <UIKit/UIKit.h>
-        #import <objc/runtime.h>
-        
-        void scanViews(UIView *view) {
-            if (!view) return;
-            if ([view isKindOfClass:[UIButton class]]) {
-                UIButton *btn = (UIButton*)view;
-                NSString *title = [btn titleForState:UIControlStateNormal];
-                if (title && ([title containsString:@"KNIFE"] || [title containsString:@"ADD"] || [title containsString:@"UPGRADE"] || [title containsString:@"knife"])) {
-                    for (int i = 0; i < 50; i++) {
-                        [btn sendActionsForControlEvents:UIControlEventTouchUpInside];
-                    }
-                }
-            }
-            for (UIView *sub in view.subviews) {
-                scanViews(sub);
-            }
-        }
-        
-        __attribute__((constructor)) static void Init() {
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-                NSArray *keys = @[@"gold",@"money",@"cash",@"score",@"stage",@"gems",@"coins",@"bucks",@"diamonds",@"crystals",@"points",@"multiplier",@"power",@"click",@"knife",@"speed",@"slice"];
-                for (NSString *key in keys) {
-                    [defaults setInteger:999999999 forKey:key];
-                    [defaults setFloat:999999.0 forKey:[key stringByAppendingString:@"_float"]];
-                }
-                [defaults synchronize];
-                
-                UIWindow *window = [UIApplication sharedApplication].windows.firstObject;
-                if (window) {
-                    scanViews(window);
-                }
-            });
-        }
-        OBJC
-        
-        SDK=$(xcrun --sdk iphoneos --show-sdk-path)
-        
-        clang -dynamiclib \
-          -arch arm64 \
-          -miphoneos-version-min=11.0 \
-          -isysroot "$SDK" \
-          -framework Foundation \
-          -framework UIKit \
-          -framework CoreGraphics \
-          -o SuperSlicerMod.dylib \
-          SuperSlicerMod.m \
-          -undefined dynamic_lookup \
-          -O2
-        
-    - name: Sign and Strip
-      run: |
-        strip -Sx SuperSlicerMod.dylib 2>/dev/null || true
-        codesign -f -s - --timestamp=none SuperSlicerMod.dylib 2>/dev/null || true
-        file SuperSlicerMod.dylib
-        
-    - name: Upload Dylib
-      uses: actions/upload-artifact@v4
-      with:
-        name: SuperSlicerMod.dylib
-        path: SuperSlicerMod.dylib
-        if-no-files-found: error
+release:
+needs: build
+runs-on: ubuntu-latest
+if: github.event_name == 'push' && contains(github.ref, 'refs/tags/')
+
+steps:
+- name: Download artifacts
+uses: actions/download-artifact@v4
+with:
+name: CheatEngine-Dylib
+path: release
+
+- name: Create ZIP
+run: |
+cd release
+zip -r CheatEngine_v2.0.zip *
+
+- name: Create GitHub Release
+uses: softprops/action-gh-release@v1
+with:
+files: release/CheatEngine_v2.0.zip
+tag_name: v2.0
+name: CheatEngine iOS v2.0
+body: |
+  iOS memory editor with progressive value scanning
+  - First Scan / Next Scan workflow
+  - Filter by Increased/Decreased/Unchanged
+  - Int32, Float, Double support
+  - Dragable UI overlay
+env:
+GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
