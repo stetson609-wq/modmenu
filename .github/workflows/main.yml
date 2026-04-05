@@ -1,4 +1,4 @@
-name: Build Universal Dylib
+name: Build CheatEngine Dylib
 on:
   workflow_dispatch:
 
@@ -9,7 +9,230 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
-      - name: Compile Dylib
+      - name: Create modmenu.m
+        run: |
+          cat > modmenu.m << 'EOF'
+          #import <UIKit/UIKit.h>
+          #import <mach/mach.h>
+          
+          @interface ModMenu : UIWindow
+          @property (nonatomic, strong) UIView *panel;
+          @property (nonatomic, strong) UITextField *scanField;
+          @property (nonatomic, strong) UITextField *writeField;
+          @property (nonatomic, strong) UILabel *statusLabel;
+          @property (nonatomic, strong) UITableView *tableView;
+          @property (nonatomic, strong) NSMutableArray *addresses;
+          @property (nonatomic, assign) int step;
+          @property (nonatomic, assign) mach_port_t task;
+          @end
+          
+          @implementation ModMenu
+          
+          - (void)setup {
+              self.task = mach_task_self();
+              self.addresses = [NSMutableArray array];
+              self.step = 0;
+              self.frame = [UIScreen mainScreen].bounds;
+              self.backgroundColor = [UIColor clearColor];
+              self.windowLevel = UIWindowLevelAlert + 100;
+              self.hidden = NO;
+              self.panel = [[UIView alloc] initWithFrame:CGRectMake(10, 80, self.frame.size.width - 20, 450)];
+              self.panel.backgroundColor = [UIColor colorWithWhite:0.05 alpha:0.95];
+              self.panel.layer.cornerRadius = 15;
+              self.panel.layer.borderWidth = 2;
+              self.panel.layer.borderColor = [UIColor systemGreenColor].CGColor;
+              [self addSubview:self.panel];
+              
+              UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(15, 10, 200, 30)];
+              title.text = @"CHEAT ENGINE";
+              title.textColor = [UIColor systemGreenColor];
+              title.font = [UIFont boldSystemFontOfSize:18];
+              [self.panel addSubview:title];
+              
+              UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem];
+              close.frame = CGRectMake(self.panel.frame.size.width - 55, 10, 40, 30);
+              [close setTitle:@"X" forState:UIControlStateNormal];
+              [close setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
+              [close addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
+              [self.panel addSubview:close];
+              
+              UILabel *scanLbl = [[UILabel alloc] initWithFrame:CGRectMake(15, 55, 80, 30)];
+              scanLbl.text = @"Value:";
+              scanLbl.textColor = [UIColor whiteColor];
+              [self.panel addSubview:scanLbl];
+              
+              self.scanField = [[UITextField alloc] initWithFrame:CGRectMake(70, 52, self.panel.frame.size.width - 140, 35)];
+              self.scanField.backgroundColor = [UIColor darkGrayColor];
+              self.scanField.textColor = [UIColor whiteColor];
+              self.scanField.borderStyle = UITextBorderStyleRoundedRect;
+              self.scanField.keyboardType = UIKeyboardTypeDecimalPad;
+              self.scanField.placeholder = @"Enter value";
+              [self.panel addSubview:self.scanField];
+              
+              UIButton *firstBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+              firstBtn.frame = CGRectMake(15, 100, (self.panel.frame.size.width - 45) / 2, 45);
+              [firstBtn setTitle:@"FIRST SCAN" forState:UIControlStateNormal];
+              firstBtn.backgroundColor = [UIColor systemBlueColor];
+              [firstBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+              firstBtn.layer.cornerRadius = 8;
+              [firstBtn addTarget:self action:@selector(firstScan) forControlEvents:UIControlEventTouchUpInside];
+              [self.panel addSubview:firstBtn];
+              
+              UIButton *nextBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+              nextBtn.frame = CGRectMake(30 + (self.panel.frame.size.width - 45) / 2, 100, (self.panel.frame.size.width - 45) / 2, 45);
+              [nextBtn setTitle:@"NEXT SCAN" forState:UIControlStateNormal];
+              nextBtn.backgroundColor = [UIColor systemOrangeColor];
+              [nextBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+              nextBtn.layer.cornerRadius = 8;
+              [nextBtn addTarget:self action:@selector(nextScan) forControlEvents:UIControlEventTouchUpInside];
+              [self.panel addSubview:nextBtn];
+              
+              self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(15, 160, self.panel.frame.size.width - 30, 140)];
+              self.tableView.backgroundColor = [UIColor blackColor];
+              self.tableView.layer.cornerRadius = 8;
+              self.tableView.delegate = (id)self;
+              self.tableView.dataSource = (id)self;
+              [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"cell"];
+              [self.panel addSubview:self.tableView];
+              
+              UILabel *writeLbl = [[UILabel alloc] initWithFrame:CGRectMake(15, 315, 80, 30)];
+              writeLbl.text = @"Write:";
+              writeLbl.textColor = [UIColor whiteColor];
+              [self.panel addSubview:writeLbl];
+              
+              self.writeField = [[UITextField alloc] initWithFrame:CGRectMake(70, 312, self.panel.frame.size.width - 140, 35)];
+              self.writeField.backgroundColor = [UIColor darkGrayColor];
+              self.writeField.textColor = [UIColor whiteColor];
+              self.writeField.borderStyle = UITextBorderStyleRoundedRect;
+              self.writeField.keyboardType = UIKeyboardTypeDecimalPad;
+              self.writeField.placeholder = @"New value";
+              [self.panel addSubview:self.writeField];
+              
+              UIButton *writeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+              writeBtn.frame = CGRectMake(15, 360, self.panel.frame.size.width - 30, 45);
+              [writeBtn setTitle:@"WRITE" forState:UIControlStateNormal];
+              writeBtn.backgroundColor = [UIColor systemGreenColor];
+              [writeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+              writeBtn.layer.cornerRadius = 8;
+              [writeBtn addTarget:self action:@selector(writeMem) forControlEvents:UIControlEventTouchUpInside];
+              [self.panel addSubview:writeBtn];
+              
+              self.statusLabel = [[UILabel alloc] initWithFrame:CGRectMake(15, 415, self.panel.frame.size.width - 30, 25)];
+              self.statusLabel.text = @"Ready";
+              self.statusLabel.textColor = [UIColor yellowColor];
+              self.statusLabel.font = [UIFont systemFontOfSize:11];
+              self.statusLabel.textAlignment = NSTextAlignmentCenter;
+              [self.panel addSubview:self.statusLabel];
+              
+              UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pan:)];
+              [self addGestureRecognizer:pan];
+              
+              UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismissKB)];
+              [tap setCancelsTouchesInView:NO];
+              [self addGestureRecognizer:tap];
+          }
+          
+          - (void)firstScan {
+              if (self.scanField.text.length == 0) { self.statusLabel.text = @"Enter value"; return; }
+              [self.addresses removeAllObjects];
+              double target = [self.scanField.text doubleValue];
+              unsigned long long start = 0x100000000;
+              unsigned long long end = start + (200 * 1024 * 1024);
+              vm_size_t size = 4096;
+              void *buf = malloc(size);
+              int found = 0;
+              for (unsigned long long addr = start; addr < end; addr += size) {
+                  vm_size_t out = 0;
+                  if (vm_read_overwrite(self.task, addr, size, (vm_address_t)buf, &out) == KERN_SUCCESS) {
+                      for (int i = 0; i < out - 3; i += 4) {
+                          int32_t val = *(int32_t*)((uint8_t*)buf + i);
+                          if (val == (int32_t)target) {
+                              [self.addresses addObject:@(addr + i)];
+                              found++;
+                              if (found >= 300) break;
+                          }
+                      }
+                  }
+                  if (found >= 300) break;
+              }
+              free(buf);
+              self.step = 1;
+              [self.tableView reloadData];
+              self.statusLabel.text = [NSString stringWithFormat:@"Found %lu addresses", (unsigned long)self.addresses.count];
+          }
+          
+          - (void)nextScan {
+              if (self.addresses.count == 0) { self.statusLabel.text = @"First scan first"; return; }
+              if (self.scanField.text.length == 0) { self.statusLabel.text = @"Enter new value"; return; }
+              double curr = [self.scanField.text doubleValue];
+              NSMutableArray *filtered = [NSMutableArray array];
+              for (NSNumber *num in self.addresses) {
+                  unsigned long long addr = [num unsignedLongLongValue];
+                  void *buf = malloc(4);
+                  vm_size_t out = 0;
+                  if (vm_read_overwrite(self.task, addr, 4, (vm_address_t)buf, &out) == KERN_SUCCESS) {
+                      int32_t val = *(int32_t*)buf;
+                      if (val == (int32_t)curr) [filtered addObject:num];
+                  }
+                  free(buf);
+              }
+              self.addresses = filtered;
+              [self.tableView reloadData];
+              self.statusLabel.text = [NSString stringWithFormat:@"Filtered to %lu addresses", (unsigned long)self.addresses.count];
+          }
+          
+          - (void)writeMem {
+              if (self.writeField.text.length == 0) { self.statusLabel.text = @"Enter write value"; return; }
+              NSIndexPath *selected = [self.tableView indexPathForSelectedRow];
+              if (!selected) { self.statusLabel.text = @"Select address"; return; }
+              unsigned long long addr = [self.addresses[selected.row] unsignedLongLongValue];
+              int32_t newVal = [self.writeField.text intValue];
+              vm_protect(self.task, addr, 4, 0, VM_PROT_READ | VM_PROT_WRITE);
+              kern_return_t kr = vm_write(self.task, addr, (vm_offset_t)&newVal, 4);
+              self.statusLabel.text = kr == KERN_SUCCESS ? @"Written!" : @"Failed";
+          }
+          
+          - (void)close { self.hidden = YES; }
+          
+          - (void)pan:(UIPanGestureRecognizer *)p {
+              CGPoint t = [p translationInView:self];
+              self.panel.center = CGPointMake(self.panel.center.x + t.x, self.panel.center.y + t.y);
+              [p setTranslation:CGPointZero inView:self];
+          }
+          
+          - (void)dismissKB {
+              [self.scanField resignFirstResponder];
+              [self.writeField resignFirstResponder];
+          }
+          
+          - (NSInteger)tableView:(UITableView *)t numberOfRowsInSection:(NSInteger)s {
+              return MIN(self.addresses.count, 100);
+          }
+          
+          - (UITableViewCell *)tableView:(UITableView *)t cellForRowAtIndexPath:(NSIndexPath *)i {
+              UITableViewCell *c = [t dequeueReusableCellWithIdentifier:@"cell"];
+              c.textLabel.text = [NSString stringWithFormat:@"0x%llX", [self.addresses[i.row] unsignedLongLongValue]];
+              c.textLabel.textColor = [UIColor greenColor];
+              c.backgroundColor = [UIColor blackColor];
+              c.textLabel.font = [UIFont fontWithName:@"Courier" size:12];
+              return c;
+          }
+          
+          - (void)tableView:(UITableView *)t didSelectRowAtIndexPath:(NSIndexPath *)i {
+              self.statusLabel.text = [NSString stringWithFormat:@"Selected 0x%llX", [self.addresses[i.row] unsignedLongLongValue]];
+          }
+          
+          @end
+          
+          __attribute__((constructor)) static void init() {
+              dispatch_async(dispatch_get_main_queue(), ^{
+                  ModMenu *menu = [[ModMenu alloc] init];
+                  [menu setup];
+              });
+          }
+          EOF
+      
+      - name: Compile Universal Dylib
         run: |
           clang -arch arm64 -arch arm64e \
             -dynamiclib \
@@ -25,5 +248,5 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CheatEngine
+          name: CheatEngine-dylib
           path: CheatEngine.dylib
